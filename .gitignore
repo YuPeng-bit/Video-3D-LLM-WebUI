@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+logs/
+results/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.tar.gz
+.venv/

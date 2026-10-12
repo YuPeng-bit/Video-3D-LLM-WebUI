@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Video-3D-LLM WebUI</title>
+<link rel="stylesheet" href="/static/styles.css?v=12" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">V3D</span>
+    <div>
+      <h1>Video-3D-LLM 可视化推理与评测</h1>
+      <p class="sub" id="ckpt-label">checkpoint: loading…</p>
+    </div>
+  </div>
+  <div class="status" id="status-box">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">连接中…</span>
+  </div>
+</header>
+
+<main class="layout">
+  <!-- ============ left: dataset + question list ============ -->
+  <aside class="panel sidebar">
+    <div class="field">
+      <label for="dataset-select">测试集 / 任务</label>
+      <select id="dataset-select"></select>
+    </div>
+    <div class="field">
+      <label for="search-input">检索（id / 场景 / 问题）</label>
+      <div class="row">
+        <input id="search-input" type="text" placeholder="例如 scene0011 或 chair" />
+        <button id="search-btn" class="btn small">检索</button>
+        <button id="search-clear" class="btn small ghost">清除</button>
+      </div>
+    </div>
+    <div class="field grow">
+      <label>问题列表 <span id="q-count" class="muted"></span></label>
+      <div id="question-list" class="question-list"></div>
+      <div class="row pager">
+        <button id="prev-page" class="btn small ghost">← 上一页</button>
+        <span id="page-info" class="muted"></span>
+        <button id="next-page" class="btn small ghost">下一页 →</button>
+      </div>
+    </div>
+    <div class="history">
+      <label>本次会话记录</label>
+      <div id="history-list" class="history-list"></div>
+    </div>
+  </aside>
+
+  <!-- ============ right: work area ============ -->
+  <section class="panel work">
+    <div id="empty-hint" class="empty">
+      <h2>请选择左侧的一个问题</h2>
+      <p>选中后可以查看/修改 RGB-D 帧输入与文本 prompt，并运行官方推理链路。</p>
+    </div>
+
+    <div id="work-body" class="hidden">
+      <div class="card">
+        <div class="card-head">
+          <h2>问题信息</h2>
+          <span id="q-badge" class="badge"></span>
+        </div>
+        <dl class="kv">
+          <dt>索引</dt><dd id="v-index"></dd>
+          <dt>ID</dt><dd id="v-id"></dd>
+          <dt>场景</dt><dd id="v-scene"></dd>
+          <dt>类型</dt><dd id="v-type"></dd>
+        </dl>
+        <div class="field">
+          <label>GT 答案（官方评测使用的 ground truth）</label>
+          <pre id="gt-box" class="pre"></pre>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>RGB-D 帧输入</h2>
+          <span class="muted" id="frame-meta"></span>
+        </div>
+        <div class="row wrap toolbar">
+          <button class="btn small" id="frames-reset">恢复官方默认</button>
+          <button class="btn small ghost" id="frames-all">全选</button>
+          <button class="btn small ghost" id="frames-clear">清空</button>
+          <label class="inline">等间隔取
+            <input id="frames-stride-n" type="number" min="1" value="16" class="mini" />
+            <button class="btn small ghost" id="frames-stride">应用</button>
+          </label>
+          <label class="inline">均匀取
+            <input id="frames-count-n" type="number" min="1" value="32" class="mini" />
+            <button class="btn small ghost" id="frames-count">应用</button>
+          </label>
+          <label class="inline"><input type="checkbox" id="show-depth" /> 显示深度图</label>
+          <span class="pill" id="frames-selected-info"></span>
+        </div>
+        <div id="frame-grid" class="frame-grid"></div>
+        <p class="hint">默认选中项 = 官方采样策略（<span id="hint-strategy">uniform</span>，最多 <span id="hint-maxframes">32</span> 帧，对应 <code>np.linspace(0, N-1, K)</code>）。手动改动后会直接使用你勾选的帧。</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h2>文本 Prompt（可修改）</h2></div>
+        <div class="field">
+          <label for="extra-prompt">附加 prompt（官方 --extra-prompt）</label>
+          <textarea id="extra-prompt" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label for="question-input">问题文本（<code>&lt;image&gt;</code> 由系统自动保留）</label>
+          <textarea id="question-input" rows="3"></textarea>
+        </div>
+        <div class="field hidden" id="box-input-field">
+          <label for="box-input">物体中心坐标 box_input（Scan2Cap 使用，官方取 3 个值）</label>
+          <input id="box-input" type="text" />
+        </div>
+        <div class="field">
+          <label>思考模式 Chain-of-Thought <span class="badge warn" id="cot-warn">非官方配置</span></label>
+          <div class="row wrap">
+            <select id="cot-mode" style="max-width:420px"></select>
+            <label class="inline"><input type="checkbox" id="cot-force" /> 强制以标记开头（前缀解码）</label>
+            <input id="cot-force-text" type="text" class="mini2 hidden" placeholder="思考：" />
+          </div>
+          <p class="hint" id="cot-hint"></p>
+        </div>
+        <div class="field hidden" id="cot-custom-field">
+          <label for="cot-custom">自定义 CoT 指令（拼在 --extra-prompt 前面）</label>
+          <textarea id="cot-custom" rows="3" placeholder="例如：先逐步分析场景中物体的三维位置关系，再给出答案。输出格式：思考：…\n答案：…"></textarea>
+        </div>
+
+        <div class="row wrap">
+          <button class="btn small ghost" id="prompt-reset">恢复官方默认 prompt</button>
+        </div>
+      </div>
+
+      <details class="card">
+        <summary><h2>高级参数（默认 = 官方配置）</h2></summary>
+        <div class="grid4">
+          <label>采样策略
+            <select id="opt-strategy"></select>
+          </label>
+          <label>最大帧数
+            <input id="opt-maxframes" type="number" min="1" value="32" />
+          </label>
+          <label>图像预处理
+            <select id="opt-decode">
+              <option value="center_crop">center_crop（官方默认）</option>
+              <option value="resize">resize</option>
+            </select>
+          </label>
+          <label>temperature
+            <input id="opt-temp" type="number" step="0.1" value="0" />
+          </label>
+          <label>num_beams
+            <input id="opt-beams" type="number" min="1" value="1" />
+          </label>
+          <label>max_new_tokens
+            <input id="opt-maxtokens" type="number" min="1" value="512" />
+          </label>
+        </div>
+        <p class="hint">当手动勾选帧时，"采样策略/最大帧数" 不再生效（输入帧以勾选为准）。</p>
+      </details>
+
+      <div class="row actions">
+        <button class="btn primary" id="run-btn">运行官方推理 + 评测</button>
+        <button class="btn ghost" id="preview-btn">仅预览模型输入</button>
+        <span id="run-status" class="muted"></span>
+      </div>
+
+      <div id="result-area" class="hidden">
+        <div class="card">
+          <div class="card-head">
+            <h2>模型输出</h2>
+            <span class="pill" id="r-latency"></span>
+          </div>
+          <div class="cmp">
+            <div class="cmp-col">
+              <div class="cmp-head"><span>GT 答案（官方评测用）</span><span id="r-gt-badge" class="badge gt"></span></div>
+              <pre id="r-gt" class="pre gt"></pre>
+            </div>
+            <div class="cmp-col">
+              <div class="cmp-head"><span>预测结果（模型输出）</span><span id="r-match" class="badge"></span></div>
+              <pre id="r-prediction" class="pre strong"></pre>
+            </div>
+          </div>
+          <div class="field" id="thinking-field">
+            <label>思考过程（模型显式输出的推理块）</label>
+            <pre id="r-thinking" class="pre thinking"></pre>
+          </div>
+          <div class="field">
+            <label>原始输出（raw output，未经任何清理）</label>
+            <pre id="r-raw" class="pre"></pre>
+          </div>
+          <div class="field">
+            <label>实际送入模型的完整 prompt</label>
+            <pre id="r-prompt" class="pre small"></pre>
+          </div>
+          <details>
+            <summary>运行细节</summary>
+            <pre id="r-extra" class="pre small"></pre>
+          </details>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>官方评测指标（本条样本）</h2></div>
+          <table class="metrics" id="metrics-table"></table>
+          <p class="hint" id="metrics-note">指标由仓库内置的官方评测代码计算（见 llava/eval/eval_*.py）。</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>官方全量结果参考</h2></div>
+          <table class="metrics" id="ref-table"></table>
+          <p class="hint" id="ref-note"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js?v=12"></script>
+</body>
+</html>

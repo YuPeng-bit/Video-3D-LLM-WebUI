@@ -1,0 +1,9 @@
+# Install inside the existing upstream Video-3D-LLM environment.
+# Does not replace the upstream torch/transformers/model dependencies.
+fastapi==0.125.0
+uvicorn==0.46.0
+Pillow==12.2.0
+numpy==1.26.1
+scipy==1.15.3
+# Optional: local SSH helper tunnel.py
+paramiko>=3.4,<5
