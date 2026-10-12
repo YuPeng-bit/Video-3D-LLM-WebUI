@@ -24,4 +24,3 @@
 
 默认帧索引来自 EmbodiedScan metadata，不是目录扫描。GT 只用于展示和生成后的官方评分。逐样本指标不代表完整 benchmark 成绩；恢复数据后应在新机器自行验收。
 
-Video3D checkpoint 没有原生 `enable_thinking` 开关，界面的思考选项属于提示词实验。原生 VTC 的对应界面见 [VTC-R1-Glyph-WebUI](https://github.com/YuPeng-bit/VTC-R1-Glyph-WebUI)。上游代码、权重及数据遵循各自许可。
